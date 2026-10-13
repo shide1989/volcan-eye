@@ -1,0 +1,9 @@
+fastapi==0.108.0
+uvicorn
+obspy
+numpy
+pandas
+matplotlib
+scipy
+scikit-learn
+jupyter
