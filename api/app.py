@@ -30,7 +30,7 @@ def read_root():
 
 @app.get("/seismic/predict")
 def predict():
-    return {"status": "ok"}
+    return {"prediction": "eruption de ouf"}
 
 # OTHERS (VSO)
 
