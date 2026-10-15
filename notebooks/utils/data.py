@@ -4,7 +4,9 @@ import obspy
 from obspy.clients.fdsn import Client
 from obspy import UTCDateTime, read, read_inventory
 
-client = Client("IRIS", debug=True)  # "RESIF" ou "IRIS" ou "EPOSFR" ou "EARTHSCOPE"
+client = Client(
+    "EARTHSCOPE", debug=True
+)  # "RESIF" ou "IRIS" ou "EPOSFR" ou "EARTHSCOPE"
 
 
 def get_help():
@@ -12,19 +14,27 @@ def get_help():
     client.help("dataselect")
 
 
-def get_data(start_date, end_date, station, network, path):
+def get_data(
+    start_date,
+    end_date,
+    station,
+    network,
+    path,
+    location="*",
+    channel="*",
+):
     mseed_path = f"{path}/{start_date}_{end_date}.mseed"
     xml_path = f"{path}/{start_date}_{end_date}.xml"
 
     # use local data if already downloaded
-    if os.path.exists(mseed_path) and os.path.exists(xml_path):
-        return (read(mseed_path), read_inventory(xml_path))
+    # if os.path.exists(mseed_path) and os.path.exists(xml_path):
+    #     return (read(mseed_path), read_inventory(xml_path))
 
     st: obspy.Stream = client.get_waveforms(
         network=network,  # code réseau
         station=station,  # code station
-        location="*",  # "*" = tous les codes de localisation, ou "00", "" etc.
-        channel="*",  # canal : BHZ = large bande, composante verticale
+        location=location,  # "*" = tous les codes de localisation, ou "00", "" etc.
+        channel=channel,  # canal : BHZ = large bande, composante verticale
         starttime=UTCDateTime(start_date),
         endtime=UTCDateTime(end_date),
     )  # type: ignore
