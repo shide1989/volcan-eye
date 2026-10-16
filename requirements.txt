@@ -8,3 +8,4 @@ scipy
 scikit-learn
 jupyter
 pytest
+psycopg[binary]
