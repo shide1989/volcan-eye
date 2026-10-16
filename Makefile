@@ -9,7 +9,7 @@ SERVICE  := $(GAR_IMAGE)
 .DEFAULT_GOAL := help
 
 help:
-	@echo "run_api | pytest | setup | build | push | deploy | redeploy | print"
+	@echo "run_api | pytest | test_volcano_db | setup | build | push | deploy | redeploy | print"
 
 reinstall_package:
 	@pip uninstall -y lewagon || :
@@ -20,6 +20,9 @@ run_api:
 
 pytest:
 	PYTHONDONTWRITEBYTECODE=1 pytest -v --color=yes
+
+test_volcano_db:
+	PYTHONDONTWRITEBYTECODE=1 pytest -v --color=yes tests/test_volcano_db.py
 
 check:
 	@test -n "$(GCP_REGION)"  || (echo "GCP_REGION is not set"  && exit 1)
