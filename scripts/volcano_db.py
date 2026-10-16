@@ -5,7 +5,7 @@ Sources:
 - GVP_Eruption_List_Holocene_*.csv: all their eruptions (GVP "Eruption Number").
 - volcanodb_volcanoes.csv + volcanodb_volcanoes_details.csv: scraped volcanodb pages, only for the fields
   GVP lists don't have (province, eruption count, max VEI, epoch, summary, volcanodb ID/URL).
-- eruptions_new.csv: one row per (eruption start date, volcano, FDSN client, network, station).
+- eruptions.csv: one row per (eruption start date, volcano, FDSN client, network, station).
 
 Everything is joined on GVP numbers; names are not unique ("San Cristobal" x2).
 
@@ -28,7 +28,7 @@ GVP_VOLCANOES_CSV = DATA / "GVP_Volcano_List_Holocene_202610130935.csv"
 GVP_ERUPTIONS_CSV = DATA / "GVP_Eruption_List_Holocene_20260424.csv"
 VOLCANODB_VOLCANOES_CSV = DATA / "volcanodb_volcanoes.csv"
 VOLCANODB_DETAILS_CSV = DATA / "volcanodb_volcanoes_details.csv"
-ERUPTIONS_CSV = DATA / "eruptions_new.csv"
+ERUPTIONS_CSV = DATA / "eruptions.csv"
 
 STATION_KEYS = ["client_name", "network", "station"]  # the same network.station can be served by 2 clients
 
@@ -103,7 +103,7 @@ def build_tables():
     eruptions = eruptions.rename(columns={"Volcano Number": "volcano_gvp_number", "Eruption Number": "eruption_gvp_number"})
     eruptions = eruptions.rename(columns=snake)
 
-    # eruptions_new.csv was merged on volcano names: rows whose coordinates are not their volcano's are a
+    # eruptions.csv was merged on volcano names: rows whose coordinates are not their volcano's are a
     # namesake's (Cerro Azul Chile vs Ecuador, San Cristobal Ecuador vs Nicaragua) and carry its stations
     rows = rows.merge(gvp_volcanoes[["Volcano Number", "Latitude", "Longitude"]], on="Volcano Number",
                       suffixes=("", " GVP"), validate="many_to_one")

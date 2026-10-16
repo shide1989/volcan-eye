@@ -59,7 +59,7 @@ def test_tofua_arc_is_unnamed_in_volcanodb(tables):
 
 
 def test_namesake_rows_are_dropped(tables):
-    # eruptions_new.csv: Cerro Azul (Ecuador) 2008-05-29 has 32 rows at its own coordinates + 76 at
+    # eruptions.csv: Cerro Azul (Ecuador) 2008-05-29 has 32 rows at its own coordinates + 76 at
     # Cerro Azul (Chile)'s; San Cristobal (Nicaragua) has 42 + 1 at San Cristobal (Ecuador)'s per eruption
     e = one(tables["eruptions"], "eruption_gvp_number", 11720)
     assert (e["volcano_gvp_number"], e["vei"], e["end_date"]) == (353060, 1, datetime.date(2008, 6, 17))
