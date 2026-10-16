@@ -1,13 +1,10 @@
-import glob
 import numpy as np
 
 from obspy import UTCDateTime
 from obspy.clients.fdsn import Client
 
-from tensorflow.keras.utils import pad_sequences, to_categorical
-from sklearn.model_selection import train_test_split
-
 from keras import Sequential, Input, Model, optimizers
+from keras.callbacks import EarlyStopping
 from keras.layers import Dense, GRU, Dropout
 from tensorflow.keras.layers import Masking
 
@@ -34,7 +31,11 @@ def compile_model(model: Model, learning_rate=0.0005) -> Model:
     """
     Compile the Neural Network
     """
-    model.compile(loss="binary_crossentropy", optimizer='rmsprop', metrics=["accuracy"])
+    model.compile(
+        loss="binary_crossentropy",
+        optimizer=optimizers.RMSprop(learning_rate=learning_rate),
+        metrics=["accuracy"],
+    )
 
     print("✅ Model compiled")
 
@@ -50,7 +51,7 @@ def train_model(
         validation_split=0.3
     ) -> Model:
     """
-    Fit the model and return a tuple (fitted_model, history)
+    Fit the model and return it
     """
     print("Training model...")
 
@@ -61,10 +62,11 @@ def train_model(
         validation_split=validation_split,
         epochs=10,
         batch_size=batch_size,
+        callbacks=[EarlyStopping(monitor="val_loss", patience=patience, restore_best_weights=True)],
         verbose=0
     )
 
-    print(f"✅ Model trained on {len(X)} rows with an accuracy of X")
+    print(f"✅ Model trained on {len(X)} rows")
 
     return model
 

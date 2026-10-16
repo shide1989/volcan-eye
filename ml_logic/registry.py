@@ -1,4 +1,6 @@
+import functools
 import glob
+import inspect
 import os
 import time
 import pickle
@@ -84,7 +86,7 @@ def load_model(stage="Production") -> keras.Model:
 
     """
 
-    if MODEL_TARGET == "local":
+    if MODEL_TARGET not in ("gcs", "mlflow"):
         print(f"\nLoad latest model from local registry...")
 
         # Get the latest model version name by the timestamp on disk
@@ -157,7 +159,11 @@ def mlflow_transition_model(current_stage: str, new_stage: str) -> None:
 
     client = MlflowClient()
 
-    version = client.get_latest_versions(name=MLFLOW_MODEL_NAME, stages=[current_stage])
+    try:
+        version = client.get_latest_versions(name=MLFLOW_MODEL_NAME, stages=[current_stage])
+    except Exception as exc:
+        print(f"\n❌ No model found with name {MLFLOW_MODEL_NAME} in stage {current_stage}: {exc}")
+        return None
 
     if not version:
         print(f"\n❌ No model found with name {MLFLOW_MODEL_NAME} in stage {current_stage}")
@@ -177,27 +183,33 @@ def mlflow_transition_model(current_stage: str, new_stage: str) -> None:
 
 def mlflow_run(func):
     """
-    Generic function to log params and results to MLflow along with TensorFlow auto-logging
-
-    Args:
-        - func (function): Function you want to run within the MLflow run
-        - params (dict, optional): Params to add to the run in MLflow. Defaults to None.
-        - context (str, optional): Param describing the context of the run. Defaults to "Train".
+    Run `func` inside an MLflow run, auto-logging TensorFlow, the function's
+    (default-applied) scalar arguments as params, and its numeric result as a metric.
     """
+    @functools.wraps(func)
     def wrapper(*args, **kwargs):
         mlflow.end_run()
         mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
         mlflow.set_experiment(experiment_name=MLFLOW_EXPERIMENT)
 
+        bound = inspect.signature(func).bind(*args, **kwargs)
+        bound.apply_defaults()
+        params = {
+            name: value for name, value in bound.arguments.items()
+            if isinstance(value, (str, int, float, bool))
+        }
+        params["context"] = func.__name__
+
         with mlflow.start_run():
             mlflow.tensorflow.autolog()
-            mlflow.log_params({
-                "is_train": True,
-                "data_size": os.environ.get("DATA_SIZE"),
-            })
-            results = func(*args, **kwargs)
+            mlflow.log_params(params)
+
+            result = func(*args, **kwargs)
+
+            if isinstance(result, (int, float)) and not isinstance(result, bool):
+                mlflow.log_metric("accuracy", float(result))
 
         print("✅ mlflow_run auto-log done")
 
-        return results
+        return result
     return wrapper
