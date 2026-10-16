@@ -1,4 +1,8 @@
+import gradio as gr
 from fastapi import FastAPI
+
+from api.ui import demo
+from api.volcanoes import list_volcanoes
 
 description = """
 
@@ -38,7 +42,10 @@ def predict():
 
 @app.get("/volcanoes")
 def volcanoes():
-    return {"status": "ok"}
+    '''
+    The volcanoes shown in the UI, with their past eruption dates and stations as [network, station].
+    '''
+    return list_volcanoes()
 
 @app.get("/volcanoes/{item_id}")
 def read_item(item_id: int):
@@ -50,3 +57,7 @@ def read_item(item_id: int):
     '''
 
     return {"item_id": item_id}
+
+# UI
+
+app = gr.mount_gradio_app(app, demo, path="/ui")

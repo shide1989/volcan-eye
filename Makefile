@@ -54,6 +54,8 @@ deploy: check
 		--memory $(GAR_MEMORY) \
 		--region $(GCP_REGION) \
 		--project $(GCP_PROJECT) \
+		--max-instances 1 \
+		--update-env-vars DATABASE_URL=$(DATABASE_URL) \
 		--allow-unauthenticated
 
 redeploy: push deploy

@@ -1,4 +1,4 @@
-fastapi==0.108.0
+fastapi==0.143.0
 uvicorn
 obspy
 numpy
@@ -9,3 +9,5 @@ scikit-learn
 jupyter
 pytest
 psycopg[binary]
+gradio==6.30.0
+plotly==6.0.0
