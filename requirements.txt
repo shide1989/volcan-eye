@@ -8,3 +8,5 @@ scipy
 scikit-learn
 jupyter
 pytest
+mlflow
+google-cloud-storage==2.14.0

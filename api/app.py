@@ -1,5 +1,10 @@
 from fastapi import FastAPI
 
+from ml_logic.registry import load_model
+from ml_logic.model import predict_new
+
+from obspy.clients.fdsn import Client
+
 description = """
 
 VolcanEye is the best api to predict if an eruption is about to come, I swear.
@@ -22,20 +27,14 @@ app = FastAPI(
     },
 )
 
+app.state.model = load_model()
+client = Client("RESIF", debug=True)
+
 @app.get("/")
 def read_root():
     return {"status": "ok"}
 
-# SEISMIC
-
-@app.get("/seismic/predict")
-def predict():
-    return {"prediction": "eruption de ouf"}
-
-# OTHERS (VSO)
-
 # VOLCANOES' DATA
-
 @app.get("/volcanoes")
 def volcanoes():
     return {"status": "ok"}
@@ -50,3 +49,20 @@ def read_item(item_id: int):
     '''
 
     return {"item_id": item_id}
+
+# SEISMIC
+@app.get("/seismic/predict")
+def predict():
+    label, proba = predict_new(
+        model=app.state.model,
+        client_name=client,
+        network='G',
+        station='RER'
+        )
+
+    return {
+            "prediction": label,
+            "proba": proba
+        }
+
+# OTHERS (VSO)
