@@ -8,6 +8,8 @@ from obspy import UTCDateTime
 from obspy.clients.fdsn.header import FDSNNoDataException
 from obspy.geodetics import kilometers2degrees
 
+DATA = "../data"
+NUM_DATA = 15
 
 ############# Function to get seismological data from different clients, for all the volcanoes studied ################
 
@@ -71,17 +73,16 @@ def get_seismo_data(start_date, t_before, t_after, client_name, network, station
 #######################################################################################################################
 if __name__ == "__main__":
 
-    path = '/home/julie/code/JulieCornet/VolcanEye/data'
+    path = DATA
 
-
-    nb_hours_before = 10
-    nb_hours_after = 4
+    nb_hours_before = 12
+    nb_hours_after = 24
     channel_list = "LH*,EH*,BH*"
 
 
-####################################################################
-######################## FOR ERUPTIONS #############################
-########################################################################
+    ####################################################################
+    ######################## FOR ERUPTIONS #############################
+    ########################################################################
 
     tag = 'erupt'
 
@@ -90,7 +91,7 @@ if __name__ == "__main__":
     cpt_eruptions = 0
 
     for _, eruption in df_eruptions.sample(frac=1).iterrows() :
-        if cpt_eruptions >= 5 : # if we have enough streams, we stop getting data
+        if cpt_eruptions >= NUM_DATA : # if we have enough streams, we stop getting data
             break
         st, inv = get_seismo_data(start_date = eruption['Start Date'],
                         t_before = nb_hours_before,
@@ -108,9 +109,9 @@ if __name__ == "__main__":
             print(st, inv)
             cpt_eruptions+=1
 
-########################################################################
-######################## FOR NON-ERUPTIONS #############################
-########################################################################
+    ########################################################################
+    ######################## FOR NON-ERUPTIONS #############################
+    ########################################################################
 
     tag = 'quiet'
 
@@ -124,7 +125,7 @@ if __name__ == "__main__":
     cpt_normal_stream = 0
 
     for i in df_eruptions.sample(frac=1).index:
-        if cpt_normal_stream >= 5:
+        if cpt_normal_stream >= NUM_DATA:
             break
 
         eruption = df_eruptions.loc[i]

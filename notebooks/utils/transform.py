@@ -73,3 +73,28 @@ def transform(st_clean: obspy.Stream) -> pd.DataFrame:
 
     index = pd.date_range(t0.datetime, periods=n, freq=f"{WINDOW_S}s", tz="UTC", name="time")
     return pd.DataFrame(columns, index=index)
+
+
+def transform_dumb(st_clean: obspy.Stream, seed: int = 42) -> pd.DataFrame:
+    """Baseline for transform: one randomly drawn (signed) sample of each cleaned trace per 10-min window.
+
+    Same UTC grid and MIN_COVERAGE rule as transform, one `<channel>_random` column per channel.
+    """
+    channels = [tr.stats.channel for tr in st_clean]
+    if len(channels) != len(set(channels)):
+        raise ValueError(f"Expected one trace per channel, got {channels}: merge and pick one location code first")
+
+    t0 = obspy.UTCDateTime(min(tr.stats.starttime for tr in st_clean).timestamp // WINDOW_S * WINDOW_S)
+    n = int((max(tr.stats.endtime for tr in st_clean) - t0) // WINDOW_S)
+
+    columns = {}
+    for tr in st_clean:
+        w = (((tr.stats.starttime - t0) + tr.times()) // WINDOW_S).astype(int)  # window index of each sample
+        coverage = pd.Series(w).value_counts() / (tr.stats.sampling_rate * WINDOW_S)
+        picked = pd.Series(tr.data).groupby(w).sample(n=1, random_state=seed)
+        col = pd.Series(picked.to_numpy(), index=w[picked.index]).reindex(range(n))
+        col[coverage.reindex(range(n)).fillna(0).to_numpy() < MIN_COVERAGE] = np.nan
+        columns[f"{tr.stats.channel}_random"] = col.to_numpy()
+
+    index = pd.date_range(t0.datetime, periods=n, freq=f"{WINDOW_S}s", tz="UTC", name="time")
+    return pd.DataFrame(columns, index=index)
