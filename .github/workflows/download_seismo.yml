@@ -36,6 +36,8 @@ jobs:
 
       - name: Download inputs
         run: |
+          # data/ is gitignored, so the checkout doesn't have it
+          mkdir -p data/$PREFIX
           gcloud storage cp gs://$BUCKET/eruptions.csv data/
           # an empty prefix makes `ls` fail: write an empty skip list instead
           (gcloud storage ls gs://$BUCKET/$PREFIX/ || true) | xargs -r -n1 basename > data/done.txt
