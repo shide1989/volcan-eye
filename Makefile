@@ -66,3 +66,9 @@ print:
 	@echo "image   = [$(IMAGE)]"
 	@echo "service = [$(SERVICE)]"
 	@echo "memory  = [$(GAR_MEMORY)]"
+
+run_train:
+	python -c 'from ml_logic.main import train; train()'
+
+run_evaluate:
+	python -c 'from ml_logic.main import evaluate; evaluate()'

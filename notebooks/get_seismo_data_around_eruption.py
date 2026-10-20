@@ -1,6 +1,11 @@
+import io
+import os
+
 import pandas as pd
 import re
 import unicodedata
+
+from google.cloud import storage
 
 # ObsPy packages
 from obspy.clients.fdsn import Client
@@ -51,9 +56,23 @@ def get_seismo_data(start_date, t_before, t_after, client_name, network, station
             ),
         )
 
+        mseed_filename = f"{start_date}_{volcano_name_clean}_{network}_{station}.mseed"
+        xml_filename = f"{start_date}_{volcano_name_clean}_{network}_{station}.xml"
+
         # local save
-        st.write(f"{path}/data_eruptions/{start_date}_{volcano_name_clean}_{network}_{station}.mseed", format="MSEED")
-        inv.write(f"{path}/data_eruptions/{start_date}_{volcano_name_clean}_{network}_{station}.xml", format="STATIONXML")
+        # st.write(f"{path}/data_eruptions/{mseed_filename}", format="MSEED")
+        # inv.write(f"{path}/data_eruptions/{xml_filename}", format="STATIONXML")
+
+        # gcs save
+        mseed_buf = io.BytesIO()
+        xml_buf = io.BytesIO()
+        st.write(mseed_buf, format="MSEED")
+        inv.write(xml_buf, format="STATIONXML")
+
+        client_storage = storage.Client()
+        bucket = client_storage.bucket(os.environ.get("BUCKET_NAME"))
+        bucket.blob(f"data_eruptions/{mseed_filename}").upload_from_string(mseed_buf.getvalue())
+        bucket.blob(f"data_eruptions/{xml_filename}").upload_from_string(xml_buf.getvalue())
 
     except FDSNNoDataException as exc: # data error
         print(f"Error for volcano {volcano_name} (network: {network}, station: {station}) : {exc}")
@@ -69,7 +88,7 @@ def get_seismo_data(start_date, t_before, t_after, client_name, network, station
 #######################################################################################################################
 if __name__ == "__main__":
 
-    path = '/home/julie/code/JulieCornet/VolcanEye/data'
+    path = '/Users/nathan/code/n-savari/volcan-eye/data'
     nb_hours_before = 10
     nb_hours_after = 4
     channel_list = "LH*,EH*,BH*"
