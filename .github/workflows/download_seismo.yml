@@ -1,0 +1,50 @@
+name: Download seismic windows to GCS
+
+on:
+  workflow_dispatch:
+    inputs:
+      prefix:
+        description: "Bucket prefix (and local output directory)"
+        default: windows
+
+env:
+  BUCKET: volcan_eye
+  PREFIX: ${{ inputs.prefix }}
+
+jobs:
+  download:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install obspy pandas
+
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: projects/1097443411978/locations/global/workloadIdentityPools/github/providers/github
+          service_account: volcan-eye-ci@lewagon-bootcamp-506510.iam.gserviceaccount.com
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Download inputs
+        run: |
+          gcloud storage cp gs://$BUCKET/eruptions.csv data/
+          # an empty prefix makes `ls` fail: write an empty skip list instead
+          (gcloud storage ls gs://$BUCKET/$PREFIX/ || true) | xargs -r -n1 basename > data/done.txt
+          wc -l data/done.txt
+
+      - name: Download windows
+        # exit code 124 = timeout: keep what was downloaded, the next run resumes
+        run: timeout 340m python scripts/download_windows.py --skip data/done.txt --prefix $PREFIX || [ $? -eq 124 ]
+
+      - name: Upload windows
+        if: always()
+        run: gcloud storage rsync data/$PREFIX gs://$BUCKET/$PREFIX/
