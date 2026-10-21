@@ -3,6 +3,7 @@ uvicorn
 obspy
 numpy
 pandas
+pyarrow
 matplotlib
 scipy
 scikit-learn
