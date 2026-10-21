@@ -125,7 +125,13 @@ if __name__ == "__main__":
     parser.add_argument("--path", default=DATA, help="directory with eruptions.csv; windows are written to {path}/{prefix}/")
     parser.add_argument("--skip", help="text file with one existing filename per line; those windows are skipped")
     parser.add_argument("--prefix", default="windows", help="output sub-directory (and bucket prefix)")
+    parser.add_argument("--bucket", help="GCS bucket: upload each window to gs://{bucket}/{prefix}/ as soon as it is saved, then delete the local copy")
     args = parser.parse_args()
+
+    bucket = None
+    if args.bucket:
+        from google.cloud import storage # only needed when uploading
+        bucket = storage.Client().bucket(args.bucket)
 
     path = args.path
     out_dir = f"{path}/{args.prefix}"
@@ -153,6 +159,12 @@ if __name__ == "__main__":
             return
         saved = fetch_window(rows, start_date, tag, tmp_path, nb_hours_before, nb_hours_after, out_dir, stem)
         counts[tag]["saved" if saved else "no data"] += 1
+        if saved and bucket is not None:
+            # .mseed last: the skip list keys on it, so a window is never skipped without its .xml
+            for ext in ("xml", "mseed"):
+                bucket.blob(f"{args.prefix}/{stem}.{ext}").upload_from_filename(f"{out_dir}/{stem}.{ext}")
+                os.remove(f"{out_dir}/{stem}.{ext}") # the runner disk can't hold every window
+            print(f"Uploaded {stem} to gs://{args.bucket}/{args.prefix}/")
 
     with tempfile.TemporaryDirectory() as tmp_path:
         # get_seismo_data writes its per-station files here; they are thrown away

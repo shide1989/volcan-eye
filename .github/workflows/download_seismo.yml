@@ -14,7 +14,9 @@ env:
 jobs:
   download:
     runs-on: ubuntu-latest
-    timeout-minutes: 360
+    # below the 6 h hard limit, so GitHub cancels cleanly and keeps the log; each window is
+    # already in the bucket, and a rerun resumes from there
+    timeout-minutes: 330
     permissions:
       id-token: write
       contents: read
@@ -25,7 +27,7 @@ jobs:
         with:
           python-version: "3.12"
 
-      - run: pip install obspy pandas
+      - run: pip install obspy pandas google-cloud-storage
 
       - uses: google-github-actions/auth@v2
         with:
@@ -44,9 +46,5 @@ jobs:
           wc -l data/done.txt
 
       - name: Download windows
-        # exit code 124 = timeout: keep what was downloaded, the next run resumes
-        run: timeout 340m python scripts/download_windows.py --skip data/done.txt --prefix $PREFIX || [ $? -eq 124 ]
-
-      - name: Upload windows
-        if: always()
-        run: gcloud storage rsync data/$PREFIX gs://$BUCKET/$PREFIX/
+        # uploads each window as soon as it is saved; -u so the log isn't buffered
+        run: python -u scripts/download_windows.py --skip data/done.txt --prefix $PREFIX --bucket $BUCKET
