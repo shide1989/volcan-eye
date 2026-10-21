@@ -26,10 +26,12 @@ def station_counts(tables, volcano_gvp_number):
     return {str(d): n for d, n in links.groupby("start_date").size().items()}
 
 
-def test_all_gvp_volcanoes_and_eruptions(tables):
+def test_all_gvp_volcanoes_and_eruptions_of_eruptions_csv(tables):
     assert len(tables["volcanoes"]) == 1214
-    # 9918 GVP eruptions, minus 7 of volcanoes missing from the (newer) volcano list
-    assert len(tables["eruptions"]) == 9918 - 7
+    # only the GVP eruptions that eruptions.csv links to stations
+    assert len(tables["eruptions"]) == 609
+    assert tables["eruption_stations"]["eruption_gvp_number"].nunique() == 609
+    assert tables["eruptions"]["start_date"].notna().all()
 
 
 def test_etna(tables):
@@ -42,10 +44,10 @@ def test_etna(tables):
     assert len(counts) == 10 and set(counts.values()) == {1143}
 
 
-def test_bce_eruption_has_no_date(tables):
-    e = one(tables["eruptions"], "eruption_gvp_number", 13500)  # Etna, 425 BCE
-    assert (e["start_year"], e["start_month"], e["start_day"]) == (-425, 3, 15)
-    assert e["start_date"] is None
+def test_bce_eruption_has_no_date():
+    e = one(volcano_db.read_gvp_eruptions(), "Eruption Number", 13500)  # Etna, 425 BCE
+    assert (e["Start Year"], e["Start Month"], e["Start Day"]) == (-425, 3, 15)
+    assert e["Start Date"] is None
 
 
 def test_akan(tables):
@@ -75,3 +77,28 @@ def test_volcanodb_duplicates_keep_lowest_id(tables):
 def test_every_csv_row_is_linked_or_dropped(tables):
     assert len(tables["eruption_stations"]) == len(pd.read_csv(volcano_db.ERUPTIONS_CSV)) - 100
     assert not tables["eruption_stations"].duplicated().any()
+
+
+def station_set(df):
+    return set(df[volcano_db.STATION_KEYS].itertuples(index=False, name=None))
+
+
+def test_volcano_stations_match_eruption_stations(tables):
+    vs = tables["volcano_stations"]
+    assert not vs.duplicated().any()
+    links = tables["eruption_stations"].merge(tables["eruptions"], on="eruption_gvp_number")
+    pairs = links[["volcano_gvp_number"] + volcano_db.STATION_KEYS].itertuples(index=False, name=None)
+    assert set(pairs) == set(vs.itertuples(index=False, name=None))
+    # 17,178 (volcano, station) pairs in eruptions.csv, minus the namesake rows' ones
+    assert len(vs) == 17101
+    assert (vs["volcano_gvp_number"] == 263250).sum() == 122  # Merapi
+
+
+def test_volcano_stations_skip_namesake_rows(tables):
+    rows = pd.read_csv(volcano_db.ERUPTIONS_CSV).rename(columns=volcano_db.snake)
+    vs = tables["volcano_stations"]
+    # Cerro Azul (Ecuador) and San Cristobal (Nicaragua): only the rows at their own coordinates
+    for volcano, latitude, n in [(353060, -0.92, 32), (344020, 12.702, 42)]:
+        own = rows[(rows["volcano_number"] == volcano) & (rows["latitude"] == latitude)]
+        stations = station_set(vs[vs["volcano_gvp_number"] == volcano])
+        assert stations == station_set(own) and len(stations) == n

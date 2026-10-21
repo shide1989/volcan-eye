@@ -1,4 +1,5 @@
-"""Read the volcano / eruption / station CSVs in data/ and link them into DB-ready tables.
+"""Read the volcano / eruption / station CSVs in data/ and link them into DB-ready tables:
+volcanoes, eruptions (only the ones in eruptions.csv), stations, eruption_stations, volcano_stations.
 
 Sources:
 - GVP_Volcano_List_Holocene_*.csv: all Holocene volcanoes (GVP "Volcano Number").
@@ -78,7 +79,8 @@ def read_eruption_stations():
 
 
 def build_tables():
-    """Link the CSVs into the tables we will store: volcanoes, eruptions, stations, eruption_stations."""
+    """Link the CSVs into the tables we will store: volcanoes, eruptions, stations, eruption_stations,
+    volcano_stations."""
     gvp_volcanoes = read_gvp_volcanoes()
     gvp_eruptions = read_gvp_eruptions()
     rows = read_eruption_stations()
@@ -122,18 +124,23 @@ def build_tables():
     rows["eruption_gvp_number"] = rows["eruption_gvp_number"].astype(int)
     stations = rows[STATION_KEYS].drop_duplicates()
     eruption_stations = rows[["eruption_gvp_number"] + STATION_KEYS]
+    volcano_stations = rows[["volcano_number"] + STATION_KEYS].drop_duplicates()
+    volcano_stations = volcano_stations.rename(columns={"volcano_number": "volcano_gvp_number"})
+    # keep only the eruptions of eruptions.csv: the GVP ones without stations are not used
+    eruptions = eruptions[eruptions["eruption_gvp_number"].isin(eruption_stations["eruption_gvp_number"])]
 
     return {
         "volcanoes": volcanoes.reset_index(drop=True),
         "eruptions": eruptions.reset_index(drop=True),
         "stations": stations.reset_index(drop=True),
         "eruption_stations": eruption_stations.reset_index(drop=True),
+        "volcano_stations": volcano_stations.reset_index(drop=True),
     }
 
 
 def load(tables, database_url):
     """Replace the content of the DB tables with `tables`, in one transaction."""
-    order = ["volcanoes", "eruptions", "stations", "eruption_stations"]  # parents before children
+    order = ["volcanoes", "eruptions", "stations", "volcano_stations", "eruption_stations"]  # parents before children
     with psycopg.connect(database_url) as conn, conn.cursor() as cur:
         cur.execute(f"truncate {', '.join(order)}")
         for name in order:
