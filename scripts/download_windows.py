@@ -2,8 +2,6 @@ import argparse
 import os
 import pandas as pd
 import re
-import sys
-import tempfile
 import unicodedata
 from pathlib import Path
 
@@ -13,9 +11,6 @@ from obspy.clients.fdsn.header import FDSNNoDataException
 
 ROOT = Path(__file__).resolve().parent.parent
 DATA = ROOT / "data"
-
-sys.path.insert(0, str(ROOT / "notebooks")) # get_seismo_data.py lives with the notebooks
-from get_seismo_data import get_seismo_data
 
 MAX_TRIES = 10 # max stations called per window
 
@@ -30,7 +25,7 @@ CHANNEL_LIST = ",".join(code for codes in SLOTS.values() for code in codes)
 ############# One window = the channels of several stations, combined into one mseed + one StationXML ################
 
 def window_stem(volcano_number, volcano_name, start_date, tag):
-    # same cleaning as in get_seismo_data
+    # same cleaning as in notebooks/get_seismo_data.py
     volcano_name_clean = re.sub(
         r"[^A-Za-z0-9-]",
         "",
@@ -45,53 +40,75 @@ def window_stem(volcano_number, volcano_name, start_date, tag):
     return f"{volcano_number}_{volcano_name_clean}_{str(start_date)[:10]}_{tag}"
 
 
-def operating_rows(rows, start_date, t_before, t_after):
-    """rows whose station has a CHANNEL_LIST channel operating during the window, in CSV order."""
-    d = UTCDateTime(start_date)
-    start, end = d - t_before*3600, d + t_after*3600
+_clients = {}
+
+def get_client(client_name):
+    # one Client per data center: creating one costs a request
+    if client_name not in _clients:
+        _clients[client_name] = Client(client_name)
+    return _clients[client_name]
+
+
+def fetch_station(client_name, network, station, start, end):
+    """Same requests as get_seismo_data, without writing files.
+    Returns (st, inv, status): status is "ok", "nodata" (204) or "error" (anything else, e.g. server down)."""
+    try:
+        client = get_client(client_name)
+        st = client.get_waveforms(network=network, station=station, location="*",
+                                  channel=CHANNEL_LIST, starttime=start, endtime=end)
+        inv = client.get_stations(network=network, station=station, level="response")
+    except FDSNNoDataException:
+        return None, None, "nodata"
+    except Exception as exc:
+        print(f"Error for {client_name} {network}.{station}: {exc}")
+        return None, None, "error"
+    print(f"Data from {client_name} {network}.{station}")
+    return st, inv, "ok"
+
+
+def operating_rows(rows, start, end):
+    """(rows whose station has a CHANNEL_LIST channel operating during the window, in CSV order,
+    True if a metadata request failed other than with 204)."""
     ok = set()
+    error = False
     for client_name, g in rows.groupby("Client Name"):
         pairs = g[["Network", "Station"]].drop_duplicates().values.tolist()
-        client = Client(client_name)
         # GET with comma lists: RESIF rejects bulk POSTs of more than a few lines.
         # The net x sta cross product can return extra stations; the mask below drops them.
         for i in range(0, len(pairs), 200):
             chunk = pairs[i:i + 200]
             try:
-                inv = client.get_stations(network=",".join(sorted({n for n, _ in chunk})),
+                inv = get_client(client_name).get_stations(network=",".join(sorted({n for n, _ in chunk})),
                                           station=",".join(sorted({s for _, s in chunk})),
                                           channel=CHANNEL_LIST, starttime=start, endtime=end, level="station")
             except FDSNNoDataException:
                 continue
             except Exception as exc:
                 print(f"get_stations failed for {client_name}: {exc}")
+                error = True
                 continue
             ok |= {(client_name, net.code, sta.code) for net in inv for sta in net}
     mask = [tuple(k) in ok for k in rows[["Client Name", "Network", "Station"]].values]
-    return rows[mask]
+    return rows[mask], error
 
 
-def fetch_window(rows, start_date, tag, tmp_path, t_before, t_after, out_dir, stem):
+def fetch_window(rows, start_date, t_before, t_after, out_dir, stem):
+    """Returns "saved", "nodata" (every request answered, none with usable data) or "error"
+    (no usable data, and at least one request failed other than with 204: worth retrying)."""
+    d = UTCDateTime(start_date)
+    start, end = d - t_before*3600, d + t_after*3600
     combined_st = Stream()
     combined_inv = Inventory(networks=[])
     filled = {} # slot -> trace id
 
-    for _, row in operating_rows(rows, start_date, t_before, t_after).head(MAX_TRIES).iterrows():
+    candidates, error = operating_rows(rows, start, end)
+    for _, row in candidates.head(MAX_TRIES).iterrows():
         if len(filled) == len(SLOTS): # every slot filled: stop calling stations
             break
 
-        st, inv = get_seismo_data(start_date = start_date,
-                        t_before = t_before,
-                        t_after = t_after,
-                        client_name = row['Client Name'],
-                        network = row['Network'],
-                        station = row['Station'],
-                        channel_list = CHANNEL_LIST,
-                        path = tmp_path,
-                        tag = tag,
-                        volcano_name = row['Volcano Name']
-        )
-        if st is None or inv is None:
+        st, inv, status = fetch_station(row['Client Name'], row['Network'], row['Station'], start, end)
+        if status != "ok":
+            error |= status == "error"
             continue
 
         kept = False
@@ -112,12 +129,12 @@ def fetch_window(rows, start_date, tag, tmp_path, t_before, t_after, out_dir, st
             combined_inv += inv
 
     if len(combined_st) == 0:
-        return False
+        return "error" if error else "nodata"
 
     print(f"Saving {stem}: {filled}")
     combined_st.write(f"{out_dir}/{stem}.mseed", format="MSEED")
     combined_inv.write(f"{out_dir}/{stem}.xml", format="STATIONXML")
-    return True
+    return "saved"
 
 #######################################################################################################################
 if __name__ == "__main__":
@@ -149,61 +166,62 @@ if __name__ == "__main__":
     # one group per eruption; Volcano Number, not Volcano Name (names are not unique)
     groups = list(df_eruptions.groupby(['Volcano Number', 'Start Date'], sort=True))
 
-    counts = {tag: {"saved": 0, "skipped": 0, "no data": 0} for tag in ("erupt", "quiet")}
+    counts = {tag: {"saved": 0, "skipped": 0, "nodata": 0, "error": 0} for tag in ("erupt", "quiet")}
 
-    def run(rows, start_date, tag, tmp_path):
+    def run(rows, start_date, tag):
         first = rows.iloc[0]
         stem = window_stem(first['Volcano Number'], first['Volcano Name'], start_date, tag)
-        if f"{stem}.mseed" in done:
+        if f"{stem}.mseed" in done or f"{stem}.nodata" in done:
             counts[tag]["skipped"] += 1
             return
-        saved = fetch_window(rows, start_date, tag, tmp_path, nb_hours_before, nb_hours_after, out_dir, stem)
-        counts[tag]["saved" if saved else "no data"] += 1
-        if saved and bucket is not None:
+        result = fetch_window(rows, start_date, nb_hours_before, nb_hours_after, out_dir, stem)
+        counts[tag][result] += 1
+        # empty .nodata marker: the servers answered 204 or nothing usable, so reruns skip this window.
+        # No marker on "error": the next run retries it.
+        if result == "nodata":
+            open(f"{out_dir}/{stem}.nodata", "w").close()
+        exts = {"saved": ("xml", "mseed"), "nodata": ("nodata",)}.get(result, ())
+        if exts and bucket is not None:
             # .mseed last: the skip list keys on it, so a window is never skipped without its .xml
-            for ext in ("xml", "mseed"):
+            for ext in exts:
                 bucket.blob(f"{args.prefix}/{stem}.{ext}").upload_from_filename(f"{out_dir}/{stem}.{ext}")
                 os.remove(f"{out_dir}/{stem}.{ext}") # the runner disk can't hold every window
-            print(f"Uploaded {stem} to gs://{args.bucket}/{args.prefix}/")
+            print(f"Uploaded {stem}.{'/'.join(exts)} to gs://{args.bucket}/{args.prefix}/")
 
-    with tempfile.TemporaryDirectory() as tmp_path:
-        # get_seismo_data writes its per-station files here; they are thrown away
-        os.makedirs(f"{tmp_path}/data_eruptions_and_quiet")
+    ####################################################################
+    ######################## FOR ERUPTIONS #############################
+    ####################################################################
 
-        ####################################################################
-        ######################## FOR ERUPTIONS #############################
-        ####################################################################
+    for (_, start_date), rows in groups:
+        run(rows, start_date, 'erupt')
 
-        for (_, start_date), rows in groups:
-            run(rows, start_date, 'erupt', tmp_path)
+    ########################################################################
+    ######################## FOR NON-ERUPTIONS #############################
+    ########################################################################
 
-        ########################################################################
-        ######################## FOR NON-ERUPTIONS #############################
-        ########################################################################
+    margin_before = nb_hours_before * 3600
+    margin_after = nb_hours_after * 3600
 
-        margin_before = nb_hours_before * 3600
-        margin_after = nb_hours_after * 3600
+    # consecutive eruptions (A, B) of the same volcano, in date order
+    for ((num_A, start_A), rows_A), ((num_B, start_B), _) in zip(groups, groups[1:]):
+        if num_A != num_B: # no next eruption for this volcano
+            continue
 
-        # consecutive eruptions (A, B) of the same volcano, in date order
-        for ((num_A, start_A), rows_A), ((num_B, start_B), _) in zip(groups, groups[1:]):
-            if num_A != num_B: # no next eruption for this volcano
-                continue
+        end_A = rows_A.iloc[0]['End Date']
+        if pd.isna(end_A):
+            continue
 
-            end_A = rows_A.iloc[0]['End Date']
-            if pd.isna(end_A):
-                continue
+        date_A = UTCDateTime(start_A)
+        date_end_A = UTCDateTime(end_A)
+        date_B = UTCDateTime(start_B)
+        date_mid = date_A + (date_B - date_A) / 2
 
-            date_A = UTCDateTime(start_A)
-            date_end_A = UTCDateTime(end_A)
-            date_B = UTCDateTime(start_B)
-            date_mid = date_A + (date_B - date_A) / 2
+        # the whole window must fit between the end of A and the start of B
+        if date_mid - margin_before < date_end_A or date_mid + margin_after > date_B:
+            print(f"Window too close to an eruption for {rows_A.iloc[0]['Volcano Name']}, skipped")
+            continue
 
-            # the whole window must fit between the end of A and the start of B
-            if date_mid - margin_before < date_end_A or date_mid + margin_after > date_B:
-                print(f"Window too close to an eruption for {rows_A.iloc[0]['Volcano Name']}, skipped")
-                continue
-
-            run(rows_A, date_mid, 'quiet', tmp_path)
+        run(rows_A, date_mid, 'quiet')
 
     for tag, c in counts.items():
-        print(f"{tag}: {c['saved']} saved, {c['skipped']} skipped, {c['no data']} without valid data")
+        print(f"{tag}: {c['saved']} saved, {c['skipped']} skipped, {c['nodata']} without data (.nodata), {c['error']} failed (retried next run)")
