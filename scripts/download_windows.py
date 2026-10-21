@@ -203,7 +203,7 @@ if __name__ == "__main__":
     margin_after = nb_hours_after * 3600
 
     # consecutive eruptions (A, B) of the same volcano, in date order
-    for ((num_A, start_A), rows_A), ((num_B, start_B), _) in zip(groups, groups[1:]):
+    for ((num_A, _), rows_A), ((num_B, start_B), _) in zip(groups, groups[1:]):
         if num_A != num_B: # no next eruption for this volcano
             continue
 
@@ -211,10 +211,11 @@ if __name__ == "__main__":
         if pd.isna(end_A):
             continue
 
-        date_A = UTCDateTime(start_A)
         date_end_A = UTCDateTime(end_A)
         date_B = UTCDateTime(start_B)
-        date_mid = date_A + (date_B - date_A) / 2
+        # middle of the quiet gap between the end of A and the start of B (the middle of A's start
+        # and B's start falls inside A when A is long)
+        date_mid = date_end_A + (date_B - date_end_A) / 2
 
         # the whole window must fit between the end of A and the start of B
         if date_mid - margin_before < date_end_A or date_mid + margin_after > date_B:
