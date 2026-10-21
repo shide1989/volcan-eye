@@ -13,6 +13,8 @@ ROOT = Path(__file__).resolve().parent.parent
 DATA = ROOT / "data"
 
 MAX_TRIES = 10 # max stations called per window
+QUIET_SPACING_DAYS = 60 # distance between the quiet windows of the same gap
+QUIET_MARGIN_DAYS = 35  # min distance between an extra quiet window and the end of A or the start of B
 
 # channel slots kept per window: slot -> channel codes that can fill it, in order of preference
 SLOTS = {
@@ -138,7 +140,7 @@ def fetch_window(rows, start_date, t_before, t_after, out_dir, stem):
 
 #######################################################################################################################
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Download one combined erupt / quiet window per eruption.")
+    parser = argparse.ArgumentParser(description="One combined erupt window per eruption and up to 3 quiet windows per gap.")
     parser.add_argument("--path", default=DATA, help="directory with eruptions.csv; windows are written to {path}/{prefix}/")
     parser.add_argument("--skip", help="text file with one existing filename per line; those windows are skipped")
     parser.add_argument("--prefix", default="windows", help="output sub-directory (and bucket prefix)")
@@ -202,8 +204,11 @@ if __name__ == "__main__":
     margin_before = nb_hours_before * 3600
     margin_after = nb_hours_after * 3600
 
+    spacing = QUIET_SPACING_DAYS * 86400
+    margin = QUIET_MARGIN_DAYS * 86400
+
     # consecutive eruptions (A, B) of the same volcano, in date order
-    for ((num_A, _), rows_A), ((num_B, start_B), _) in zip(groups, groups[1:]):
+    for ((num_A, _), rows_A), ((num_B, start_B), rows_B) in zip(groups, groups[1:]):
         if num_A != num_B: # no next eruption for this volcano
             continue
 
@@ -222,7 +227,14 @@ if __name__ == "__main__":
             print(f"Window too close to an eruption for {rows_A.iloc[0]['Volcano Name']}, skipped")
             continue
 
-        run(rows_A, date_mid, 'quiet')
+        # stations of A then B; A comes first, so the window is still named after A
+        rows = pd.concat([rows_A, rows_B]).drop_duplicates(subset=['Client Name', 'Network', 'Station'])
+        run(rows, date_mid, 'quiet')
+
+        # extra windows on both sides of the midpoint, each far enough from both eruptions
+        for date in (date_mid - spacing, date_mid + spacing):
+            if date - margin_before >= date_end_A + margin and date + margin_after <= date_B - margin:
+                run(rows, date, 'quiet')
 
     for tag, c in counts.items():
         print(f"{tag}: {c['saved']} saved, {c['skipped']} skipped, {c['nodata']} without data (.nodata), {c['error']} failed (retried next run)")
