@@ -45,7 +45,8 @@ def window_stem(volcano_number, volcano_name, start_date, tag):
 _clients = {}
 
 def get_client(client_name):
-    # one Client per data center: creating one costs a request
+    # one Client per data center: creating one costs a request.
+    # A client created while its server is failing has no station service, and the cache keeps it for the whole run.
     if client_name not in _clients:
         _clients[client_name] = Client(client_name)
     return _clients[client_name]
