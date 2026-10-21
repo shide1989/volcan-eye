@@ -1,0 +1,54 @@
+name: Train GRU
+
+on:
+  workflow_dispatch:
+    inputs:
+      features:
+        description: "Bucket prefix of the parquet features"
+        default: features/v1
+      max_erupt:
+        description: "Erupt windows kept per volcano, Fournaise excepted (0: no cap)"
+        default: "10"
+      quiet_per_erupt:
+        description: "Quiet windows kept per kept erupt window (0: no cap)"
+        default: "2"
+      folds:
+        description: "Cross-validation folds, grouped by volcano"
+        default: "5"
+      epochs:
+        description: "Maximum epochs (early stopping on the inner validation set)"
+        default: "500"
+
+env:
+  BUCKET: volcan_eye
+  PYTHONPATH: notebooks
+
+jobs:
+  train:
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # tensorflow pinned as in requirements.txt
+      - run: pip install tensorflow==2.16.2 scikit-learn pandas pyarrow google-cloud-storage
+
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: projects/1097443411978/locations/global/workloadIdentityPools/github/providers/github
+          service_account: volcan-eye-ci@lewagon-bootcamp-506510.iam.gserviceaccount.com
+
+      - name: Train
+        # the run id names the model folder, so gs://volcan_eye/models/<id>/ links back to this log
+        run: >
+          python -u scripts/train.py --bucket $BUCKET --features ${{ inputs.features }}
+          --run-id ${{ github.run_id }}
+          --max-erupt ${{ inputs.max_erupt }} --quiet-per-erupt ${{ inputs.quiet_per_erupt }}
+          --folds ${{ inputs.folds }} --epochs ${{ inputs.epochs }}

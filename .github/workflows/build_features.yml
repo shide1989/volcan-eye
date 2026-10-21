@@ -1,0 +1,41 @@
+name: Build features
+
+on:
+  workflow_dispatch:
+    inputs:
+      windows:
+        description: "Bucket prefix of the .mseed/.xml windows"
+        default: windows
+      features:
+        description: "Bucket prefix of the parquet output (a new version to recompute: features/v2, ...)"
+        default: features/v1
+
+env:
+  BUCKET: volcan_eye
+  PYTHONPATH: notebooks
+
+jobs:
+  features:
+    runs-on: ubuntu-latest
+    # below the 6 h hard limit; each parquet is already in the bucket, and a rerun resumes from there
+    timeout-minutes: 330
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install obspy pandas pyarrow google-cloud-storage
+
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: projects/1097443411978/locations/global/workloadIdentityPools/github/providers/github
+          service_account: volcan-eye-ci@lewagon-bootcamp-506510.iam.gserviceaccount.com
+
+      - name: Build features
+        # -u so the log isn't buffered
+        run: python -u scripts/build_features.py --bucket $BUCKET --windows ${{ inputs.windows }} --features ${{ inputs.features }}
