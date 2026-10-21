@@ -20,9 +20,9 @@ select v.volcano_gvp_number, v.name, v.country, v.latitude, v.longitude,
        (select coalesce(array_agg(distinct e.start_date order by e.start_date desc), '{}')
           from eruptions e
          where e.volcano_gvp_number = v.volcano_gvp_number and e.start_date is not null),
-       (select coalesce(array_agg(distinct array[es.network, es.station] order by array[es.network, es.station]), '{}')
-          from eruption_stations es join eruptions e using (eruption_gvp_number)
-         where e.volcano_gvp_number = v.volcano_gvp_number)
+       (select coalesce(array_agg(distinct array[vs.network, vs.station] order by array[vs.network, vs.station]), '{}')
+          from volcano_stations vs
+         where vs.volcano_gvp_number = v.volcano_gvp_number)
 from volcanoes v join top using (volcano_gvp_number)
 order by v.name
 """
