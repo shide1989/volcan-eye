@@ -76,7 +76,7 @@ def test_volcanodb_duplicates_keep_lowest_id(tables):
 
 def test_every_csv_row_is_linked_or_dropped(tables):
     assert len(tables["eruption_stations"]) == len(pd.read_csv(volcano_db.ERUPTIONS_CSV)) - 100
-    assert not tables["eruption_stations"].duplicated().any()
+    assert not tables["eruption_stations"].duplicated(["eruption_gvp_number"] + volcano_db.STATION_KEYS).any()
 
 
 def station_set(df):
@@ -102,3 +102,38 @@ def test_volcano_stations_skip_namesake_rows(tables):
         own = rows[(rows["volcano_number"] == volcano) & (rows["latitude"] == latitude)]
         stations = station_set(vs[vs["volcano_gvp_number"] == volcano])
         assert stations == station_set(own) and len(stations) == n
+
+
+def probe(tables, volcano_gvp_number, start_date, client_name, network, station):
+    """The eruption_stations row of one station at one eruption."""
+    e = tables["eruptions"].query("volcano_gvp_number == @volcano_gvp_number and start_date == @start_date")
+    links = tables["eruption_stations"].merge(e[["eruption_gvp_number"]], on="eruption_gvp_number")
+    rows = links[(links["client_name"] == client_name) & (links["network"] == network) & (links["station"] == station)]
+    assert len(rows) == 1
+    return rows.iloc[0]
+
+
+def test_every_row_has_a_probe_status(tables):
+    es = tables["eruption_stations"]
+    assert set(es["probe_status"]) == {"data", "nodata", "error"}
+    assert (es["channels"].notna() == (es["probe_status"] == "data")).all()
+
+
+def test_probe_status_counts(tables):
+    # channel_survey.csv: 2,227 data / 59,949 nodata / 448 error stations, minus the 100 namesake rows'
+    # (1 data: San Cristobal 2001-05-11 EARTHSCOPE YH.G01, 99 nodata)
+    counts = tables["eruption_stations"]["probe_status"].value_counts().to_dict()
+    assert counts == {"data": 2226, "nodata": 59850, "error": 448}
+
+
+def test_fournaise_rer_channels(tables):
+    p = probe(tables, 233020, datetime.date(2014, 6, 21), "EARTHSCOPE", "G", "RER")
+    assert p["probe_status"] == "data"
+    assert p["channels"] == ["BHE", "BHN", "BHZ", "LHE", "LHN", "LHZ", "LKI"]
+
+
+def test_nodata_and_error_have_no_channels(tables):
+    p = probe(tables, 221115, datetime.date(2007, 8, 12), "RESIF", "YP", "S015")  # Manda Hararo
+    assert p["probe_status"] == "nodata" and p["channels"] is None
+    p = probe(tables, 223020, datetime.date(2014, 6, 22), "GEOFON", "KV", "BUTK")  # Nyamulagira: 403
+    assert p["probe_status"] == "error" and p["channels"] is None
