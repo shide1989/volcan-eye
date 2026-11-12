@@ -37,8 +37,8 @@ jobs:
         with:
           python-version: "3.12"
 
-      # tensorflow pinned as in requirements.txt
-      - run: pip install tensorflow==2.16.2 scikit-learn pandas pyarrow google-cloud-storage
+      # tensorflow pinned as in requirements.txt; it needs numpy < 2, and pyarrow 26 needs numpy >= 2
+      - run: pip install tensorflow==2.16.2 scikit-learn pandas "pyarrow<26" google-cloud-storage
 
       - uses: google-github-actions/auth@v2
         with:

@@ -59,3 +59,41 @@ def prepare(
     df["ehz_valid"] = df.filter(like="EHZ_").notna().any(axis=1).astype("float32")
     df["lh_valid"] = df.filter(like="LHE_").notna().any(axis=1).astype("float32")
     return df.fillna(0.0)
+
+
+HZ_CODES = ("EHZ", "BHZ", "HHZ")  # high-rate vertical slot, in download_windows.SLOTS order
+COLUMNS_SLOTS = [c.replace("EHZ_", "HZ_") for c in COLUMNS]
+
+
+def prepare_slots(st: Stream, inv) -> pd.DataFrame | None:
+    """Like prepare(dumb=False), with EHZ, BHZ or HHZ as one `HZ` input (ADR-005).
+
+    Keeps LHN/LHE plus the first code of HZ_CODES present at >= 20 Hz. The traces keep their
+    real SEED code (cleanup and transform pick their pipeline from it); only the columns are renamed.
+    ### Returns:
+        - One row per 10-min window: COLUMNS_SLOTS, hz_valid, lh_valid.
+        - `None` if no usable channel."""
+    lst = st.select(channel="LH[NE]")
+    for code in HZ_CODES:
+        hz = Stream([tr for tr in st.select(channel=code) if tr.stats.sampling_rate >= 20])
+        if hz:
+            lst += hz
+            break
+    if not lst.traces:
+        return None
+
+    # same steps as prepare()
+    for tr in lst:
+        tr.stats.sampling_rate = round(tr.stats.sampling_rate, 2)
+    lst = lst.merge(method=1, fill_value=0)
+
+    for tr in lst:
+        tr.data = cleanup(tr, inv).data
+
+    df = transform(lst)
+    df.columns = [f"HZ_{c[4:]}" if c[:4] in {f"{code}_" for code in HZ_CODES} else c for c in df.columns]
+    df = df.reindex(columns=COLUMNS_SLOTS)
+
+    df["hz_valid"] = df.filter(like="HZ_").notna().any(axis=1).astype("float32")
+    df["lh_valid"] = df.filter(like="LHE_").notna().any(axis=1).astype("float32")
+    return df.fillna(0.0)
